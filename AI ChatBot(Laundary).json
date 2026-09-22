@@ -1,0 +1,936 @@
+{
+  "name": "Chat_Agent (Laundary)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        64
+      ],
+      "id": "b7fa1f4e-74bc-4eed-a1e0-c8d5926bf044",
+      "name": "Webhook",
+      "webhookId": "8f63db8f-8844-4209-b3db-564fa40e83be"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.message }}",
+        "options": {
+          "systemMessage": "=Agent Prompt: Nikita for The Laundry Hub\nSystem Role: AI Laundry Concierge\nYou are Nikita, the lead AI concierge for The Laundry Hub. Your persona is friendly, efficient, and exceptionally helpful, designed to make laundry services feel effortless for customers in the UAE and Egypt. You are the digital front door to a premium service.\nSYSTEM INSTRUCTIONS:\nPersona: Maintain a friendly, clear, and professional tone. Use emojis sparingly to enhance warmth (e.g., ✨, 🚚, ✅).\nJSON Output is Mandatory: Your every single response must be a valid JSON object following the specified format. There are no exceptions.\nOne Idea Per Message: Keep your interactions focused. Do not combine multiple questions or steps into one message. For example, after getting the service type, ask for the pickup date in a new message.\nState Awareness: Continuously track the laundry_order object. Never ask for information that has already been provided (is not null). Use the customer's name once collected to personalize the conversation.\nDate/Time Formatting: Internally, you must convert all user-provided dates and times into a strict DD-MM-YYYY, HH:MM AM/PM format for the pickup_date_time field.\nHandling Refusals: If a user refuses to provide information (e.g., their name), set the corresponding field to the string \"Not Provided\".\nClarity Over Speed: Always ensure the user's intent is clear before proceeding. If a user's message is ambiguous (e.g., \"help with my booking\"), ask for clarification before updating the laundry_order object.\nPrimary Objective & Output Format\nYour primary objective is to manage laundry bookings, answer inquiries, and provide support by generating a specific JSON object for every response.\nALWAYS OUTPUT IN THE JSON FORMAT BELOW. THIS IS A STRICT, NON-NEGOTIABLE REQUIREMENT.\nGenerated json\n{\n\"output\": \"The text message for the user.\",\n\"laundry_order\": {\n\"name\": \"Value, null, or 'Not Provided'\",\n\"phone\": \"Value, null, or 'Not Provided'\",\n\"location\": \"Value or null (e.g., 'Dubai', 'Cairo')\",\n\"service_type\": \"Value or null (e.g., 'Wash & Fold')\",\n\"pickup_date_time\": \"Value or null (Format: DD-MM-YYYY, HH:MM AM/PM)\",\n\"address\": \"Value, null, or 'Not Provided'\",\n\"payment_method\": \"Value or null (e.g., 'Pay on Pickup')\",\n\"order_id\": \"Value or null\",\n\"contacted_on\": \"Value or null (Format: DD-MM-YYYY, HH:MM AM/PM)\",\n\"confirmed_by_user\": \"'Yes', 'Cancel', or 'No' (Default state is 'No')\"\n}\n}\nCore Agent Directives & State Management\nUse this data to maintain a unique conversation state:\nchat_id: {{ $json.data.chat.id }}\nuser_phone: {{ $json.data.fromNumber }}\ncurrent_time: {{ $now }}\nExecution Rules:\nNew Chat Initialization: On the first message, initialize the laundry_order object. phone with user_phone, set confirmed_by_user to \"No\", and all other fields to null.\nConfirmation Flag (confirmed_by_user):\nThis flag's default state is \"No\". It tracks the final confirmation status.\nSet it to \"Yes\" ONLY when the user explicitly confirms a booking summary.\nSet it to \"Cancel\" ONLY when the user explicitly cancels a booking.\nIn all other situations (e.g., asking questions, changing details), this flag MUST remain \"No\".\nTimestamping (contacted_on): Set the contacted_on field to the current_time only when confirmed_by_user is being set to \"Yes\".\nOrder ID Generation (order_id): Generate a unique order ID (e.g., LA + 4 random digits) and assign it to the order_id field at the exact moment confirmed_by_user is set to \"Yes\".\nLanguage Proficiency: You are fluent in English and Arabic. Respond in the language the user initiates the conversation with.\nConversation Goals & Staged Flow\nStage 1: Welcome & Triage\nGoal: Greet the user and understand their primary need.\nAction: Send the main menu, which now includes a cancellation option. Based on the user's numeric reply, transition to the appropriate stage.\n(Example Menu: 1. New Booking, 2. Pricing, 3. Track Order, 4. Cancel Order, 5. Support)\nStage 2: Booking Flow (User chooses '1')\nGoal: Collect all required information for a new laundry pickup.\nAction: Guide the user step-by-step, collecting one piece of information per message and updating the laundry_order object in real-time.\nAsk for Location.\nAsk for Phone.\nAsk for Service Type.\nAsk for Pickup Date & Time.\nAsk for Full Address.\nAsk for Name (if not already collected).\nProceed to Stage 6 (Confirmation Summary).\nStage 3: Information Requests\nGoal: Provide pricing, service details, or promotions.\nAction: Output the relevant pre-defined text from the Internal Knowledge Base. The laundry_order object is maintained but may not be updated unless the user pivots to a booking action (e.g., replies with 'BOOK').\nStage 4: Order Tracking\nGoal: Provide the status of an existing order using an external tool.\nAction:\nAsk the user for their order #.\nUse the google_sheets_lookup tool with the provided order_id.\nFormulate your output message based on the tool's response.\nStage 5: Support Escalation\nGoal: Route the user to human support.\nAction: Provide the pre-defined support message with contact details. Your role is to de-escalate and direct them to the right channel.\nStage 6: Booking Confirmation Summary\nGoal: Present all collected details for final user approval.\nAction:\nFirst, send a summary message. Use bullet points to list all collected details from the laundry_order object (Service, Pickup, Address, Payment).\nThen, in a separate message, ask for final confirmation (e.g., \"Everything look correct? Shall I schedule this for you?\").\nAfter sending the question, transition to Stage 7 to handle the user's reply.\nStage 7: Handling the Confirmation Reply\nGoal: Accurately interpret the user's final decision after they have seen the summary for a NEW booking.\nAction:\nThis stage is for a NEW booking only.\nIf the user gives a positive confirmation ('yes', 'confirm', 'perfect', 'ok'), generate the final JSON where output is the confirmation message, confirmed_by_user is 'Yes', order_id is generated, and contacted_on is timestamped.\nIf the user gives a negative confirmation ('no'), generate a JSON where output is a polite cancellation message and confirmed_by_user is 'Cancel'. Do not generate an order_id.\nIf the user asks a question or wants to change something ('can I change the time to 2 hours later?', 'wait'), generate a JSON where output is a helpful response. The confirmed_by_user flag MUST remain 'No'.\nStage 8: Order Cancellation Flow\nGoal: To process a cancellation request for an EXISTING, confirmed order.\nAction:\nAsk the user for their Order ID (e.g., \"Sure, I can help with that. What is the order number you would like to cancel?\").\nOnce the user provides the order ID, you must ask for final confirmation to prevent mistakes (e.g., \"Got it. Are you sure you want to cancel order #LA1234?\").\nIf the user confirms the cancellation, generate a JSON where output is a polite confirmation message (\"Your order #LA1234 has been successfully cancelled.\") and the laundry_order object has the order_id field populated with the user-provided ID, and confirmed_by_user is set to 'Cancel'.\nIf the user says no or changes their mind at this stage, send a message like \"Okay, no problem. I have not cancelled anything.\" and ensure the confirmed_by_user flag remains 'No'.\nFallback Response (Error Handling):\nGoal: Handle unclear or unrecognized user input gracefully.\nAction: If the user's input does not match any expected keywords or formats, send a helpful, clarifying message.\nExample output: \"Sorry, I didn’t quite get that! 😊 You can reply with a number from the menu, or type BOOK, TRACK, or SUPPORT.\"\nTool Integration\nYou have access to the following tool:\ngoogle_sheets_lookup\nPurpose: To check the status of an existing laundry order from a master Google Sheet.\nWhen to use: When the user selects \"Track My Order\" and provides an order number.\nInput: { \"order_id\": \"LA1234\" }\nPossible Outputs (JSON from the tool):\n{ \"status\": \"In Progress\", \"details\": \"Your clothes are currently being washed.\" }\n{ \"status\": \"Out for Delivery\", \"details\": \"Our driver is on the way! ETA: 3 PM.\" }\n{ \"status\": \"Not Found\", \"details\": \"We couldn't find an order with that ID. Please double-check the number.\" }\nInternal Knowledge Base (For quick reference)\nServices & Pricing:\nWash & Fold: AED 25/kg\nDry Cleaning: AED 15/item (starting price)\nIroning Only: AED 10/item\nExpress Service (Same Day): +50% fee\nPromotions:\nFirst-Time User: 30% OFF (Code: FRESH30)\nRefer a Friend: Get AED 50 credit.\nSupport Contacts:\nUAE: +971 4 XXX XXXX\nEgypt: +20 2 XXX XXXX"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        1216,
+        320
+      ],
+      "id": "cd82d80d-30d2-40ff-97ca-7fc08847095d",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1184,
+        560
+      ],
+      "id": "3b3395d2-4481-4cd0-9fb9-6fbdca417f29",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "lh0rmrNyFssRtXh2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.sessionId }}",
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        560
+      ],
+      "id": "9ff58beb-4923-4216-81ec-fdfb9c67aa57",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0d9bc47e-f605-4f34-8f51-911e1e779893",
+              "name": "output",
+              "value": "={{ $json.output.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2384,
+        64
+      ],
+      "id": "ed35f53b-2e85-4fad-b954-f68dadccc2be",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5828c2ac-5f22-4fa6-a017-b0813aaf81dc",
+              "name": "Name",
+              "value": "={{ $json.output.laundry_order.name }}",
+              "type": "string"
+            },
+            {
+              "id": "4375f90e-c870-4d0a-a017-84a1086afff0",
+              "name": "Phone",
+              "value": "={{ $json.output.laundry_order.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "dc0553ff-7621-48f6-8872-72c8a3427402",
+              "name": "Location",
+              "value": "={{ $json.output.laundry_order.location }}",
+              "type": "string"
+            },
+            {
+              "id": "a3884478-6af0-424d-87ec-79219be016ed",
+              "name": "Service",
+              "value": "={{ $json.output.laundry_order.service_type }}",
+              "type": "string"
+            },
+            {
+              "id": "6a08938b-7c74-49a7-9e5d-08e4c126f3ac",
+              "name": "Date_Time",
+              "value": "={{ $json.output.laundry_order.pickup_date_time }}",
+              "type": "string"
+            },
+            {
+              "id": "3749ef6a-5886-4743-9917-f9af638af77f",
+              "name": "Address",
+              "value": "={{ $json.output.laundry_order.address }}",
+              "type": "string"
+            },
+            {
+              "id": "4457a673-fb45-4fe9-a0b2-5c0fc8bf60dd",
+              "name": "Payment",
+              "value": "={{ $json.output.laundry_order.payment_method }}",
+              "type": "string"
+            },
+            {
+              "id": "a8aff8a6-7afe-4899-944a-562f6728499f",
+              "name": "Order_ID",
+              "value": "={{ $json.output.laundry_order.order_id }}",
+              "type": "string"
+            },
+            {
+              "id": "abaced9b-abf9-4d39-a09e-078f74a87cdf",
+              "name": "Confirm",
+              "value": "={{ $json.output.laundry_order.confirmed_by_user }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2352,
+        704
+      ],
+      "id": "d3ea8c5f-7fd9-41ef-8525-e3bae61a559d",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1IM5id2OXbrtDA3cGtIG9y2hcroE6Wtg1WsuHwryaE14/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1IM5id2OXbrtDA3cGtIG9y2hcroE6Wtg1WsuHwryaE14/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "order_id"
+          ],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Service",
+              "displayName": "Service",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date_Time",
+              "displayName": "Date_Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Payment",
+              "displayName": "Payment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Order_ID",
+              "displayName": "Order_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Confirm",
+              "displayName": "Confirm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        2656,
+        704
+      ],
+      "id": "545c19a0-89e9-4b4b-81e2-523aa1561f1f",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jDS2dFPVUSSX3r0X",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1IM5id2OXbrtDA3cGtIG9y2hcroE6Wtg1WsuHwryaE14/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1IM5id2OXbrtDA3cGtIG9y2hcroE6Wtg1WsuHwryaE14/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.6,
+      "position": [
+        1472,
+        544
+      ],
+      "id": "53d47bf9-ad83-459a-94bb-69bbc7b91d36",
+      "name": "Get row(s) in sheet in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "jDS2dFPVUSSX3r0X",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "input": "={{ $json.output.output }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2368,
+        -128
+      ],
+      "id": "cf3ba295-6f78-4b31-b5ea-bccd516be5cf",
+      "name": "Generate audio",
+      "credentials": {
+        "openAiApi": {
+          "id": "lh0rmrNyFssRtXh2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        704,
+        -48
+      ],
+      "id": "c56551cd-fcbd-425a-9537-2dfda140b6a8",
+      "name": "Transcribe a recording",
+      "credentials": {
+        "openAiApi": {
+          "id": "lh0rmrNyFssRtXh2",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.isAudio }}",
+                    "rightValue": "Yes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d1d50ea3-9150-496e-a513-b10409d915e4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b368ad8f-53a8-43af-ae20-02e158f25fb7",
+                    "leftValue": "={{ $json.body.isAudio }}",
+                    "rightValue": "No",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        288,
+        304
+      ],
+      "id": "4c0ac9c5-389c-45d5-bc56-4594cdcc3702",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "jsCode": " return {body:{message:$input.first().json.text}}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -48
+      ],
+      "id": "66ec534d-09c7-4e3a-979d-ad9f1cb4fbc7",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Webhook').item.json.body.isAudio }}",
+                    "rightValue": "Yes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d1d50ea3-9150-496e-a513-b10409d915e4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b368ad8f-53a8-43af-ae20-02e158f25fb7",
+                    "leftValue": "={{ $('Webhook').item.json.body.isAudio }}",
+                    "rightValue": "No",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2080,
+        -48
+      ],
+      "id": "5782e043-9e69-495d-8cc2-5f2d277a09d0",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 688,
+        "width": 832
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -176
+      ],
+      "id": "fbd6563d-c8bd-415d-9931-879c22869440",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 528,
+        "width": 480,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1136,
+        176
+      ],
+      "id": "d7dfe27c-d2de-4f8c-91f4-2a8fac537ae9",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 496,
+        "width": 832,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        -224
+      ],
+      "id": "73b3ec64-20b7-44a8-ac35-ea6095218875",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "",
+        "height": 528,
+        "width": 848,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        512
+      ],
+      "id": "d2ff1242-2c4d-4f56-a2ee-0d759b5bb728",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {
+          "includeUnpaired": false
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        -48
+      ],
+      "id": "19ee80f1-0d17-4c8a-8ab2-78fa4fb65eb6",
+      "name": "Merge_Voice&Text"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.laundry_order.confirmed_by_user }}",
+                    "rightValue": "No",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEquals"
+                    },
+                    "id": "fdc471b3-7f8f-4796-a61e-f5bcf7e18a19"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2064,
+        704
+      ],
+      "id": "87e6848f-75ea-4442-a094-0cf254cf7127",
+      "name": "Switch3"
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2640,
+        -128
+      ],
+      "id": "b474625b-e8c4-44e2-8ef3-ecace7d9d915",
+      "name": "Respond to Webhook2"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.output }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2640,
+        64
+      ],
+      "id": "d4a388f1-4271-4c83-a5c3-f75be9d49bca",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "604ac727-b7e4-4fe3-a757-a5ad2267fa96",
+              "name": "output",
+              "value": "={{ $json.output }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1712,
+        320
+      ],
+      "id": "ef93565c-1bc5-4f62-bddf-c1c4b27329b3",
+      "name": "Edit Fields3"
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "temp67.app.n8n.cloud",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            "content-length": "77",
+            "accept": "text/plain",
+            "accept-encoding": "gzip, br",
+            "accept-language": "en-US,en;q=0.9",
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "39.63.30.208",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "PK",
+            "cf-ray": "9674b7c583becdf2-SIN",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "origin": "null",
+            "priority": "u=1, i",
+            "sec-ch-ua": "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Google Chrome\";v=\"138\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "cross-site",
+            "x-forwarded-for": "39.63.30.208, 172.71.124.80",
+            "x-forwarded-host": "temp67.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-42-bd54959cf-2qvkj",
+            "x-is-trusted": "yes",
+            "x-real-ip": "39.63.30.208"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "message": "yes",
+            "sessionId": "sess-bx8csljzgin-1753876755699",
+            "isAudio": "No"
+          },
+          "webhookUrl": "https://temp67.app.n8n.cloud/webhook/chat-agent",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge_Voice&Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields2": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet in Google Sheets": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Merge_Voice&Text",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe a recording": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate audio": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "Generate audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge_Voice&Text": {
+      "main": [
+        [
+          {
+            "node": "Transcribe a recording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch3": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields3": {
+      "main": [
+        [
+          {
+            "node": "Switch3",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b21d6595-a934-4fcf-ba6e-397dffdf7efb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "722fd7dac1391f74dcb898d2cb982b0d6b05e5647eef8a9269b9e376c35bcccd"
+  },
+  "id": "3ZzA1snWOrnUcV1u",
+  "tags": []
+}
